@@ -11,4 +11,4 @@
 install.packages("remotes")
 
 # 一键安装
-remotes::install_github("你的GitHub用户名/你的仓库名")
+remotes::install_github("haoalin/lcz")
