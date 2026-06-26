@@ -1,0 +1,36 @@
+Package: lcz
+Type: Package
+Title: lcz
+Version: 3.1.0
+Authors@R: c(
+    person(
+      "Liu lin",
+      email = "needliulin@163.com",
+      role = c("aut", "cre")
+    )
+  )
+Description: Calculate the addition and subtraction of two numbers.write this package for practice.
+License: GPL-3
+Imports: 
+    broom,
+    car,
+    dunn.test,
+    dplyr,
+    emmeans,
+    lmerTest,
+    magrittr,
+    methods,
+    multcomp,
+    multcompView,
+    openxlsx,
+    readxl,
+    stats,
+    tidyr,
+    tidyselect,
+    tools,
+    utils,
+    ggplot2,
+    tibble
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.3
