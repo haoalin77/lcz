@@ -3,8 +3,8 @@
   if (requireNamespace("crayon", quietly = TRUE)) {
     msg <- paste0(
       crayon::green("Our story began in summer, a summer that knows no end.！\n"),
-      crayon::silver("Best love for best you"),
-      crayon::blue("dcz")
+      crayon::silver("Best love for best you\n"),
+      crayon::blue("dcz\n")
     )
     packageStartupMessage(msg)
   } else {
