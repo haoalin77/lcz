@@ -1,5 +1,5 @@
 # 📦 lcz
-# 傻蛋蛋爱吃饭
+# 
 
 用于生物统计分析的 R 语言包，欢迎大家使用。
 
@@ -11,4 +11,4 @@
 install.packages("remotes")
 
 # 一键安装
-remotes::install_github("haoalin/lcz")
+remotes::install_github("haoalin77/lcz")
