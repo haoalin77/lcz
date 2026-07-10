@@ -4,7 +4,7 @@
     msg <- paste0(
       crayon::green("Our story began in summer, a summer that knows no end.！\n"),
       crayon::silver("Best love for best you\n"),
-      crayon::blue("dcz\n")
+      crayon::blue("dcz")
     )
     packageStartupMessage(msg)
   } else {
