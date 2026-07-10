@@ -19,25 +19,16 @@ analyze_mixed_model(
 
 \item{random_factor}{A character string. Specifies the column name of the random effect.}
 
-\item{response_cols}{(Optional) A character vector. Specifies the column names of response variables to analyze. If NULL, the function automatically selects all numeric columns excluding the factors.}
+\item{response_cols}{(Optional) A character vector. Specifies the column names of response variables to analyze.}
 
-\item{adjust_method}{A character string. The adjustment method for p-values in emmeans (default is "sidak"). Options include "tukey", "bonferroni", "none", etc.}
+\item{adjust_method}{A character string. The adjustment method for p-values in emmeans (default is "sidak").}
 }
 \value{
-A list containing three data frames:
-\itemize{
-  \item \code{ANOVA_Results}: Summary of Type III ANOVA for all variables.
-  \item \code{Pairwise_Comparisons}: P-values for pairwise comparisons (adjusted based on interaction).
-  \item \code{ABC_Letters}: Compact Letter Display (CLD) for significant differences.
-}
+A list containing three data frames: ANOVA_Results, Pairwise_Comparisons, and ABC_Letters.
 }
 \description{
 This function performs batch analysis for multiple numeric response variables.
 It constructs a linear mixed model (`lmer`) with the formula:
 `Response ~ Fixed1 * Fixed2 + (1|Random)`.
-It performs Type III ANOVA and automatically selects post-hoc analysis strategies:
-\itemize{
-  \item \strong{Significant Interaction (P < 0.05)}: Performs simple effects analysis (slicing).
-  \item \strong{Non-significant Interaction}: Performs main effects analysis.
-}
+It performs Type III ANOVA and automatically selects post-hoc analysis strategies.
 }

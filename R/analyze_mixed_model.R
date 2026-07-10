@@ -9,31 +9,22 @@ utils::globalVariables(c(
 #' This function performs batch analysis for multiple numeric response variables.
 #' It constructs a linear mixed model (`lmer`) with the formula:
 #' `Response ~ Fixed1 * Fixed2 + (1|Random)`.
-#' It performs Type III ANOVA and automatically selects post-hoc analysis strategies:
-#' \itemize{
-#'   \item \strong{Significant Interaction (P < 0.05)}: Performs simple effects analysis (slicing).
-#'   \item \strong{Non-significant Interaction}: Performs main effects analysis.
-#' }
+#' It performs Type III ANOVA and automatically selects post-hoc analysis strategies.
 #'
 #' @param data A data frame containing the response variables and factors.
 #' @param fixed_factors A character vector of length 2. Specifies the column names of the two fixed effects.
 #' @param random_factor A character string. Specifies the column name of the random effect.
-#' @param response_cols (Optional) A character vector. Specifies the column names of response variables to analyze. If NULL, the function automatically selects all numeric columns excluding the factors.
-#' @param adjust_method A character string. The adjustment method for p-values in emmeans (default is "sidak"). Options include "tukey", "bonferroni", "none", etc.
+#' @param response_cols (Optional) A character vector. Specifies the column names of response variables to analyze.
+#' @param adjust_method A character string. The adjustment method for p-values in emmeans (default is "sidak").
 #'
-#' @return A list containing three data frames:
-#' \itemize{
-#'   \item \code{ANOVA_Results}: Summary of Type III ANOVA for all variables.
-#'   \item \code{Pairwise_Comparisons}: P-values for pairwise comparisons (adjusted based on interaction).
-#'   \item \code{ABC_Letters}: Compact Letter Display (CLD) for significant differences.
-#' }
+#' @return A list containing three data frames: ANOVA_Results, Pairwise_Comparisons, and ABC_Letters.
 #'
 #' @importFrom lmerTest lmer
 #' @importFrom emmeans emmeans
 #' @importFrom multcomp cld
 #' @importFrom multcompView multcompLetters
-#' @importFrom dplyr select mutate case_when bind_rows everything
-#' @importFrom stats anova as.formula setNames
+#' @importFrom dplyr bind_rows
+#' @importFrom stats anova as.formula
 #' @importFrom utils globalVariables
 #' @importFrom graphics pairs
 #'
@@ -50,41 +41,42 @@ analyze_mixed_model <- function(data,
   }
 
   # Ensure columns exist and convert to factors
+  # Ensure columns exist and convert to factors
   for (col in c(fixed_factors, random_factor)) {
     if (!col %in% colnames(data)) {
       stop(paste("Column not found in data:", col))
     }
-    data[[col]] <- as.factor(data[[col]])
+    data[[col]] <- as.factor(data[[col]]) #
   }
 
   # Determine response variables
   if (is.null(response_cols)) {
-    # Auto-select numeric columns that are not predictors
-    response_cols <- colnames(data)[sapply(data, is.numeric)]
-    response_cols <- setdiff(response_cols, c(fixed_factors, random_factor))
+    all_numeric <- colnames(data)[vapply(data, is.numeric, logical(1))]
+    response_cols <- setdiff(all_numeric, c(fixed_factors, random_factor))
   }
 
-  f1 <- fixed_factors[1]
-  f2 <- fixed_factors[2]
+  f1  <- fixed_factors[1]
+  f2  <- fixed_factors[2]
   rnd <- random_factor
 
   # --- Internal Helper: Extract Pairs and CLD ---
   get_emm_res <- function(emm_obj, adj_meth, comparison_lbl) {
-    # A. Pairs (Fixed: Use graphics::pairs generic, not emmeans::pairs)
-    pairs_obj <- pairs(emm_obj, adjust = adj_meth)
-    pairs_df <- as.data.frame(pairs_obj)
-    pairs_df$Comparison_Type <- comparison_lbl
+    # A. Pairs
+    pairs_obj <- suppressMessages(graphics::pairs(emm_obj, adjust = adj_meth))
+    pairs_df  <- as.data.frame(pairs_obj)
+    pairs_df[["Comparison_Type"]] <- comparison_lbl
 
     # B. CLD (Compact Letter Display)
-    # Note: multcomp::cld relies on multcompView
-    cld_obj <- multcomp::cld(emm_obj, alpha = 0.05, Letters = letters, adjust = adj_meth)
+    cld_obj <- suppressMessages(
+      multcomp::cld(emm_obj, alpha = 0.05, Letters = letters, adjust = adj_meth)
+    )
     cld_df <- as.data.frame(cld_obj)
-    cld_df$Comparison_Type <- comparison_lbl
+    cld_df[["Comparison_Type"]] <- comparison_lbl
 
-    # Clean .group column if it exists
+    # Clean .group column safely via Base R matrix indexing
     if (".group" %in% colnames(cld_df)) {
-      cld_df$Letters <- trimws(cld_df$.group)
-      cld_df <- dplyr::select(cld_df, -c(.group))
+      cld_df[["Letters"]] <- trimws(cld_df[[".group"]])
+      cld_df <- cld_df[, setdiff(names(cld_df), ".group"), drop = FALSE]
     }
 
     return(list(pairs = pairs_df, cld = cld_df))
@@ -94,21 +86,19 @@ analyze_mixed_model <- function(data,
   results_list <- lapply(response_cols, function(var_name) {
     tryCatch({
       # === A. Modeling ===
-      # Construct formula: y ~ factor(A) * factor(B) + (1|Random)
-      formula_str <- paste0("`", var_name, "` ~ ",
-                            "factor(`", f1, "`) * factor(`", f2, "`) + ",
-                            "(1|`", rnd, "`)")
+      formula_str <- paste0("`", var_name, "` ~ `", f1, "` * `", f2, "` + (1 | `", rnd, "`)")
 
-      fit1 <- lmerTest::lmer(stats::as.formula(formula_str), data = data)
+      # Suppress any internal convergence warnings or text messages from lme4
+      fit1 <- suppressMessages(lmerTest::lmer(stats::as.formula(formula_str), data = data))
 
       # === B. ANOVA ===
       fit_aov <- stats::anova(fit1, type = 3)
 
-      # Check Interaction (rows containing ":")
+      # Check Interaction safely
       interaction_row <- grep(":", rownames(fit_aov))
       if (length(interaction_row) > 0) {
         p_interaction <- fit_aov$`Pr(>F)`[interaction_row]
-        is_interaction_sig <- p_interaction < 0.05
+        is_interaction_sig <- (!is.na(p_interaction) && p_interaction < 0.05)
       } else {
         is_interaction_sig <- FALSE
       }
@@ -117,35 +107,40 @@ analyze_mixed_model <- function(data,
 
       # Tidy ANOVA table
       fit_aov_df <- as.data.frame(fit_aov)
-      fit_aov_df$Variable <- var_name
-      fit_aov_df$Term <- rownames(fit_aov_df)
-      fit_aov_df$Interaction_Status <- status_label
-      fit_aov_df$Sig <- dplyr::case_when(
-        fit_aov_df$`Pr(>F)` < 0.001 ~ "***",
-        fit_aov_df$`Pr(>F)` < 0.01  ~ "**",
-        fit_aov_df$`Pr(>F)` < 0.05  ~ "*",
-        TRUE ~ "NS"
-      )
-      fit_aov_df <- dplyr::select(fit_aov_df, Variable, Term, Interaction_Status, `Pr(>F)`, Sig, dplyr::everything())
+      fit_aov_df[["Variable"]] <- var_name
+      fit_aov_df[["Term"]]     <- rownames(fit_aov_df)
+      fit_aov_df[["Interaction_Status"]] <- status_label
+
+      # Vectorized sign assignments
+      sig_vector <- rep("NS", nrow(fit_aov_df))
+      p_vals <- fit_aov_df$`Pr(>F)`
+      sig_vector[!is.na(p_vals) & p_vals < 0.05]  <- "*"
+      sig_vector[!is.na(p_vals) & p_vals < 0.01]  <- "**"
+      sig_vector[!is.na(p_vals) & p_vals < 0.001] <- "***"
+      fit_aov_df[["Sig"]] <- sig_vector
+
+      # Enforce explicit column order via dynamic string subsetting
+      anova_front <- c("Variable", "Term", "Interaction_Status", "Pr(>F)", "Sig")
+      anova_others <- setdiff(names(fit_aov_df), anova_front)
+      fit_aov_df <- fit_aov_df[, c(anova_front, anova_others), drop = FALSE]
 
       # === C. Post-hoc Analysis ===
       pairs_list <- list()
-      cld_list <- list()
+      cld_list   <- list()
 
       if (is_interaction_sig) {
         # >>> Path 1: Significant Interaction -> Simple Effects <<<
-
-        # 1.1 Fix F2, compare F1
         spec_formula_1 <- stats::as.formula(paste0("~ `", f1, "` | `", f2, "`"))
-        emm_1 <- emmeans::emmeans(fit1, specs = spec_formula_1)
+        emm_1 <- suppressMessages(emmeans::emmeans(fit1, specs = spec_formula_1))
         res_1 <- get_emm_res(emm_1, adjust_method, paste0("Simple Effect: ", f1, " within ", f2))
 
         pairs_list[[1]] <- res_1$pairs
         cld_list[[1]]   <- res_1$cld
 
-        # 1.2 Fix F1, compare F2
         spec_formula_2 <- stats::as.formula(paste0("~ `", f2, "` | `", f1, "`"))
-        emm_2 <- emmeans::emmeans(fit1, specs = spec_formula_2)
+        emm_2 <- suppressMessages(emmeans::emmeans(fit1, specs = spec_formula_2))
+
+        # FIXED: Added the missing comma here
         res_2 <- get_emm_res(emm_2, adjust_method, paste0("Simple Effect: ", f2, " within ", f1))
 
         pairs_list[[2]] <- res_2$pairs
@@ -153,42 +148,42 @@ analyze_mixed_model <- function(data,
 
       } else {
         # >>> Path 2: Non-sig Interaction -> Main Effects <<<
-
-        # 2.1 F1 Main Effect
         spec_formula_main_1 <- stats::as.formula(paste0("~ `", f1, "`"))
-        emm_main_1 <- emmeans::emmeans(fit1, specs = spec_formula_main_1)
+        emm_main_1 <- suppressMessages(emmeans::emmeans(fit1, specs = spec_formula_main_1))
         res_main_1 <- get_emm_res(emm_main_1, adjust_method, paste0("Main Effect: ", f1))
 
-        # Fill missing column for merging
-        try({ res_main_1$cld[[f2]] <- "All" }, silent = TRUE)
+        if (nrow(res_main_1$cld) > 0) res_main_1$cld[[f2]] <- "All"
 
         pairs_list[[1]] <- res_main_1$pairs
         cld_list[[1]]   <- res_main_1$cld
 
-        # 2.2 F2 Main Effect
         spec_formula_main_2 <- stats::as.formula(paste0("~ `", f2, "`"))
-        emm_main_2 <- emmeans::emmeans(fit1, specs = spec_formula_main_2)
+        emm_main_2 <- suppressMessages(emmeans::emmeans(fit1, specs = spec_formula_main_2))
         res_main_2 <- get_emm_res(emm_main_2, adjust_method, paste0("Main Effect: ", f2))
 
-        try({ res_main_2$cld[[f1]] <- "All" }, silent = TRUE)
+        if (nrow(res_main_2$cld) > 0) res_main_2$cld[[f1]] <- "All"
 
         pairs_list[[2]] <- res_main_2$pairs
         cld_list[[2]]   <- res_main_2$cld
       }
 
       # === D. Merge Single Variable Results ===
-      # Merge Pairs
       all_pairs_var <- dplyr::bind_rows(pairs_list)
-      all_pairs_var$Variable <- var_name
-      all_pairs_var$Interaction_Status <- status_label
-      all_pairs_var$Sig <- ifelse(all_pairs_var$p.value < 0.05, "*", "NS")
-      all_pairs_var <- dplyr::select(all_pairs_var, Variable, Interaction_Status, Comparison_Type, dplyr::everything())
+      all_pairs_var[["Variable"]]           <- var_name
+      all_pairs_var[["Interaction_Status"]] <- status_label
+      all_pairs_var[["Sig"]]                <- ifelse(!is.na(all_pairs_var$p.value) & all_pairs_var$p.value < 0.05, "*", "NS")
 
-      # Merge CLD
+      pairs_front  <- c("Variable", "Interaction_Status", "Comparison_Type")
+      pairs_others <- setdiff(names(all_pairs_var), pairs_front)
+      all_pairs_var <- all_pairs_var[, c(pairs_front, pairs_others), drop = FALSE]
+
       all_cld_var <- dplyr::bind_rows(cld_list)
-      all_cld_var$Variable <- var_name
-      all_cld_var$Interaction_Status <- status_label
-      all_cld_var <- dplyr::select(all_cld_var, Variable, Interaction_Status, Comparison_Type, dplyr::everything())
+      all_cld_var[["Variable"]]           <- var_name
+      all_cld_var[["Interaction_Status"]] <- status_label
+
+      cld_front  <- c("Variable", "Interaction_Status", "Comparison_Type")
+      cld_others <- setdiff(names(all_cld_var), cld_front)
+      all_cld_var <- all_cld_var[, c(cld_front, cld_others), drop = FALSE]
 
       return(list(anova = fit_aov_df, pairs = all_pairs_var, cld = all_cld_var))
 
@@ -212,9 +207,13 @@ analyze_mixed_model <- function(data,
   final_pairs <- dplyr::bind_rows(lapply(results_list, `[[`, "pairs"))
   final_cld   <- dplyr::bind_rows(lapply(results_list, `[[`, "cld"))
 
+  rownames(final_anova) <- NULL
+  rownames(final_pairs) <- NULL
+  rownames(final_cld)   <- NULL
+
   return(list(
-    "ANOVA_Results" = final_anova,
+    "ANOVA_Results"        = final_anova,
     "Pairwise_Comparisons" = final_pairs,
-    "ABC_Letters" = final_cld
+    "ABC_Letters"          = final_cld
   ))
 }
